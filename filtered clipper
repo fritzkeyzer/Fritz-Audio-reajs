@@ -1,0 +1,51 @@
+desc: Filtered Clipper
+//tags: Clipper
+//author: Fritz
+
+//slider1:6<-150,150,1>Adjustment (dB)
+//slider2:0<-150,150,1>Max Volume (dB)
+//slider2:100<0,100,1>Primary (%)
+slider2:1<0,1,0.0001> Threshold
+slider3:10<10,200>Release Freq (Hz)
+
+
+
+@slider
+  thresh = slider2;
+  fc = slider3/srate;
+  b1 = exp(-2*3.14*fc);
+  a0 = 1 - b1;
+
+@block
+//doseek ? (
+//  dadj=(adj1-adj1_s)/samplesblock;
+//  doseek=0;
+//):(
+//  dadj=0;
+//  adj1_s=adj1;
+//);
+
+@sample
+//spl0=min(max(spl0*adj1_s,-adj2),adj2);
+//spl1=min(max(spl1*adj1_s,-adj2),adj2);
+//adj1_s+=dadj;
+s0 = spl0;
+s1 = spl1;
+
+m = abs(s0);
+abs(s1) > m ? (
+  m = abs(s1);
+);
+
+newGain = 1;
+m > thresh ? (
+  newGain = thresh / m;
+);
+
+gain = newGain * a0 + gain * b1;
+
+s0 *= gain;
+s1 *= gain;
+
+spl0 = s0;
+spl1 = s1;

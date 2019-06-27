@@ -1,0 +1,57 @@
+// This effect Copyright (C) 2004 and later Cockos Incorporated
+// License: GPL - http://www.gnu.org/licenses/gpl.html
+
+desc: Harmonic Controls
+//tags: utility gain
+//author: Fritz
+
+//slider1:6<-150,150,1>Adjustment (dB)
+//slider2:0<-150,150,1>Max Volume (dB)
+//slider2:100<0,100,1>Primary (%)
+slider3:0<0,100,1>2nd Harmonic (%)
+slider4:0<0,100,1>3nd Harmonic (%)
+slider5:0<0,100,1>4th Harmonic (%)
+slider6:0<0,100,1>5th Harmonic (%)
+
+@slider
+  //adj1=2 ^ (slider1/6); 
+ // adj2=2 ^ (slider2/6);
+  //doseek=1;
+  //primary = slider2*0.01;
+  second = slider3*0.01;
+  third = slider4*0.01;
+  fourth = slider5*0.01;
+  fifth = slider6*0.01;
+
+@block
+//doseek ? (
+//  dadj=(adj1-adj1_s)/samplesblock;
+//  doseek=0;
+//):(
+//  dadj=0;
+//  adj1_s=adj1;
+//);
+
+@sample
+//spl0=min(max(spl0*adj1_s,-adj2),adj2);
+//spl1=min(max(spl1*adj1_s,-adj2),adj2);
+//adj1_s+=dadj;
+s0 = spl0;
+s1 = spl1;
+d0 = spl0;
+d1 = spl1;
+
+s0 += (second*d0*d0);
+s1 += (second*d1*d1);
+
+s0 += (-third*d0*d0*d0);
+s1 += (-third*d1*d1*d1);
+
+s0 += (-fourth*d0*d0*d0*d0);
+s1 += (-fourth*d1*d1*d1*d1);
+
+s0 += (fifth*d0*d0*d0*d0*d0);
+s1 += (fifth*d1*d1*d1*d1*d1);
+
+spl0 = s0;
+spl1 = s1;

@@ -1,0 +1,61 @@
+// This effect Copyright (C) 2004 and later Cockos Incorporated
+// License: GPL - http://www.gnu.org/licenses/gpl.html
+
+desc: PolyShaper
+//tags: Waveshaper Distortion
+//author: Fritz
+
+slider1:0<-90,0,0.1>Threshold (db)
+slider2:0<0,1,0.1>Knee
+slider3:2<1,100,0.1>Ratio
+
+@init
+  db2log = 0.11512925464970228420089957273422; // ln(10) / 20 
+
+@slider
+  
+  x1 = exp(slider1*db2log);
+  knee = slider2*x1;
+  ratio = slider3;
+  //knee = min(knee, x1);
+  x0 = x1 - knee;
+  x2 = x1 + knee;
+  y0 = x0;
+  y2 = x1 + (1/ratio)*(xs - x1);
+  m = 1/ratio;
+  
+  ratio >= 100 ? (
+    m = 0;
+  );
+  
+  a = (m/(4*knee)) - (1/(4*knee));
+  b = 1 - 2*a*(x1 - knee);
+  c = -a*(x1 - knee)*(x1 - knee) - b*(x1 - knee) + (x1 - knee);
+
+@block
+
+@sample
+//spl0=min(max(spl0*adj1_s,-adj2),adj2);
+//spl1=min(max(spl1*adj1_s,-adj2),adj2);
+//adj1_s+=dadj;
+xL = spl0;
+xR = spl1;
+
+yL = xL;
+yR = xR;
+
+sc = max(abs(xL), abs(xR));
+g = 1;
+
+sc > x0 ? (
+  sc >= x2 ? (
+    g = x1 + m*(sc - x1);      //linear
+  );
+  sc < x2 ? (
+    g = a*sc*sc + b*sc + c;    //polynomial
+  );
+  g = g /sc;
+);
+
+spl0 = yL*g;
+spl1 = yR*g;

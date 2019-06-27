@@ -1,0 +1,181 @@
+desc: Compressor A
+//tags: compressor
+//author: Fritz
+
+slider1:0<-80,0,0.1>Threshold (db)
+slider2:0<0,1,0.00001>Knee
+slider3:2<1,64,0.5>Ratio
+slider4:0.1<0.01,500, 0.1>Attack (ms)
+slider5:0<0,1,1>AttackShape
+slider6:10<10,10000,1>Release (ms)
+slider7:0<0,1,0.1>ReleaseShape
+slider8:0<0,1,0.00001>Feedback
+slider9:0<0,1,0.2>ReleaseAggression
+slider10:2000<10,20000,1>FixedPole (Hz)
+slider11:0<0,1,0.01>Release Link
+slider12:1<0.1,200,1>SC HPF (Hz)
+
+@init
+  gr_meter=1;
+  //gr_meter_decay = exp(1/(1*srate));
+
+  gain = 1;
+  
+  //constants
+  log2db = 8.6858896380650365530225783783321; // 20 / ln(10)
+  db2log = 0.11512925464970228420089957273422; // ln(10) / 20 
+  pi = 3.14159265359;
+
+  //init
+  a1 = 0;
+  z1 = 1;
+  z2 = 1;
+  ar = 0;
+  scL = 0;
+  prevOut = 1;
+  fbL = 0;
+  fbR = 0;
+  fbM = 0;
+  fbS = 0;
+  monL_lpf = 0;
+  monR_lpf = 0;
+
+@slider
+  //Transfer Curve
+  thresh = exp(slider1*db2log);
+  knee = slider2*thresh;
+  x1 = thresh;
+  ratio = slider3;
+  x0 = x1 - knee;
+  x2 = x1 + knee;
+  m = 1/ratio;
+  ratio >= 64 ? (
+    m = 0;
+  );
+  a = (m/(4*knee)) - (1/(4*knee));
+  b = 1 - 2*a*(x1 - knee);
+  c = -a*(x1 - knee)*(x1 - knee) - b*(x1 - knee) + (x1 - knee);
+  
+  //Attack/release coeffs
+  attackTime = 1000/slider4;
+  releaseTime = 1000/slider6;
+  attackTime = min(max(attackTime, 0.1), 0.5*srate);
+  releaseTime = min(max(releaseTime, 0.1), 0.5*srate);
+  a1a = 1 - exp(-2 * pi * (attackTime/srate));
+  a1r = 1 - exp(-2 * pi * (releaseTime/srate));
+  a0a = 1 + slider5*(a1a - 1);
+  a0r = 1 + slider7*(a1r - 1);
+  a2 = 1 - exp(-2 * pi * (slider10/srate));
+  aSC = 1 - exp(-2 * pi * (slider12/srate));
+  
+  feedback = slider8;
+  releaseAgression = slider9;
+  releaseLink = slider11;
+  
+  
+
+@sample
+s0 = spl0;
+s1 = spl1;
+
+//detector stage
+monL = abs(s0 + feedback*(fbL - s0));  //feedback
+monR = abs(s1 + feedback*(fbR - s1));
+
+monL_lpf = monL_lpf + aSC*(monL - monL_lpf);  //lowpass
+monR_lpf = monR_lpf + aSC*(monR - monR_lpf);
+
+sc = max(abs(monL), abs(monR)); //max of HPF
+//sc = max(abs(monL - monL_lpf), abs(monR - monR_lpf)); //max of HPF
+
+targetGain = 1;
+x = sc;
+
+x > x0 ? (
+  x >= x2 ? (
+    y = x1 + m*(x - x1);      //linear
+  );
+  x < x2 ? (
+    y = a*x*x + b*x + c;    //polynomial
+  );
+  targetGain = y / sc;
+);
+
+
+//Attack/release filters
+targetGain < z2 ? (
+  //attack
+  a0 = a0a;
+  a1t = a1a;
+  ar == 0 ? (
+    a1 = 0;
+  );
+  ar = 1;
+);
+targetGain >= z2 ? (
+  //release
+  a0 = a0r;
+  a1t = a1r;
+  targetGain = targetGain + releaseAgression*(1 - targetGain);
+  ar == 1 ? (
+    a1 = releaseLink*a1;
+  );
+  ar = 0;
+);
+
+a1 = a1 + a0*(a1t - a1);            //attack/release constant filter
+
+z1 = z1 + a1*(targetGain - z1);     //attack/release pole
+z2 = z2 + a2*(z1 - z2);             //fixed pole
+
+gain = z2;
+
+gr_meter = gain;
+spl0 = s0*gain;
+spl1 = s1*gain;
+
+
+fbL = spl0;
+fbR = spl1;
+
+
+
+@gfx 0 32 // request horizontal/vertical heights (0 means dont care)
+
+  gr_meter *= exp(1/30); gr_meter>1?gr_meter=1; // decay meter here so if the audio processing stops it doesnt "stick"
+  gfx_r=1; gfx_g=gfx_b=0; gfx_a=0.8;
+  
+  meter_bot=20;
+  meter_h=min(gfx_h,32);
+  xscale=gfx_w*20/meter_bot;
+
+  gfx_y=0;
+  gfx_x=gfx_w + log10(gr_meter)*xscale;
+  gfx_rectto(gfx_w,meter_h);
+
+  gfx_r=gfx_g=gfx_b=1.0; gfx_a=0.6;
+
+  s2=sqrt(2)/2;
+  g = s2;
+  while(
+    gfx_x=gfx_w + log10(g)*xscale;
+    gfx_x >= 0 ? 
+    (
+      gfx_y=0;
+      gfx_lineto(gfx_x,meter_h,0);
+      gfx_y=meter_h-gfx_texth;
+      gfx_x+=2;
+      gfx_drawnumber(log10(g)*20,0);
+      gfx_drawchar($'d');
+      gfx_drawchar($'B');
+    );
+    g*=s2;
+    gfx_x >=0;
+  );
+  gfx_a=1;
+
+  gfx_x=0; gfx_y=meter_h/2 - gfx_texth/2;
+  gfx_drawnumber(log10(gr_meter)*20,1);
+  gfx_drawchar($'d');
+  gfx_drawchar($'B');
+

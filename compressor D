@@ -1,0 +1,285 @@
+desc: Compressor D
+//tags: Compressor Dynamics
+//author: Fritz
+
+slider1:0<-12,24,0.1>Input Gain (db)
+
+slider2:0<-80,0,0.1>Threshold (db)
+slider3:0<0,1,0.01>Ratio
+
+slider4:0<0,200,0.1>SC HPF (Hz)
+
+slider5:0<0,1,0.01>Attack
+slider6:0<0,1,0.01>Release
+slider7:0<0,1,0.01>Punch
+slider8:0<0,1,0.01>Pump
+
+//slider9:2000<100,4000,10>Envelope Smooth (Hz)
+
+slider10:0<0,1,1{Off,On}>Soft Clip
+
+//slider11:0<0,1,1{Off,On}>Soft Clip
+
+
+@init
+  gr_meter=1;
+  //gr_meter_decay = exp(1/(1*srate));
+
+  gain = 1;
+  
+  //constants
+  log2db = 8.6858896380650365530225783783321; // 20 / ln(10)
+  db2log = 0.11512925464970228420089957273422; // ln(10) / 20 
+  pi = 3.14159265359;
+
+  //init
+  sc = 0;
+  z1 = 1;
+  z2 = 1;
+  fb_M = 0;
+  mon_M_lpf = 0;
+
+@slider
+  inGain = slider1;
+  thresh = slider2*(1 + 0*slider5*slider7);
+  ratio = 1 + pow(slider3, 3)*1000;
+  knee = 0.5*(1 - pow(slider7, 2));
+  knee = 0;
+  scHpf = slider4;
+  feedback = 0.6*sin(pi*pow(slider3, 1));
+  //feedback = 1 - pow(slider7, 2);
+  
+  totAttack = pow(slider5, 3);
+  totRelease = pow(slider6, 3);
+  punch = pow(slider7, 3);
+  pump = pow(slider8, 3);
+  releaseAgression = 1 - pow(slider8, 3);
+  releaseAgression = 0;
+  a_g_smooth = 8000;   //2000
+    
+  softClip = slider10;
+  scAttackMin = 0.0001;
+  scAttackMax = 300;
+  scReleaseTrueMin = 8;
+  scReleaseMin = 460;
+  scReleaseMax = 4000;
+  scAttackTime = punch*(scAttackMax - scAttackMin) + scAttackMin;
+  scReleaseTime = pump*(totRelease*(scReleaseMax - scReleaseMin) + scReleaseMin) + scReleaseTrueMin;
+  //scReleaseTime = scReleaseTime + scAttackTime;
+    
+  attackMin = 3;
+  attackMax = 20;
+  releaseTrueMin = 1;
+  releaseMin = 180;
+  releaseMax = 7800;
+  attackTime = totAttack*(attackMax - attackMin) + attackMin;
+  releaseTime = (1 - pump)*(totRelease*(releaseMax - releaseMin) + releaseMin) + releaseTrueMin;
+  //releaseTime = releaseTime + attackTime;
+  
+  
+  
+
+  //Pre
+  inGain = exp(inGain*db2log);
+
+  //SC section:
+  scAttackTime < 0.1 ? (
+    scAttackTime = 1;
+  );
+  scAttackTime > 0.1 ? (
+    scAttackTime = 1000/(scAttackTime);
+  );
+  scReleaseTime = min(max(1000/(scReleaseTime), 0.1), srate); //hz
+  a_sc_a = 1 - exp(-2 * pi * (scAttackTime/srate));
+  //a_sc_a = 1;
+  a_sc_r = 1 - exp(-2 * pi * (scReleaseTime/srate));
+  a_sc_hpf = 1 - exp(-2 * pi * (scHpf/srate));
+
+  //Thresholding
+  thresh = exp(thresh*db2log);
+  knee = knee*thresh;
+  x1 = thresh;
+  x0 = x1 - knee;
+  x2 = x1 + knee;
+  m = 1/ratio;
+  //m = ratio;
+  //ratio >= 1000 ? (
+  //  m = 0;
+  //);
+  a = (m/(4*knee)) - (1/(4*knee));
+  b = 1 - 2*a*(x1 - knee);
+  c = -a*(x1 - knee)*(x1 - knee) - b*(x1 - knee) + (x1 - knee);
+  
+  //Gain envelope
+  attackTime < 0.1 ? (
+    attackTime = 1;
+  );
+  attackTime > 0.1 ? (
+    attackTime = 1000/(attackTime);
+  );
+  releaseTime = 1000/(releaseTime);
+  a_g_smooth = 1 - exp(-2 * pi * (a_g_smooth/srate));
+  attackTime = min(max(attackTime, 0.1), srate);
+  releaseTime = min(max(releaseTime, 0.1), srate);
+  a_g_a = 1 - exp(-2 * pi * (attackTime/srate));
+  //a_g_a = 1;
+  a_g_r = 1 - exp(-2 * pi * (releaseTime/srate));
+  
+  //Soft Clipping
+  knee_clip = 0.2;
+  x1_clip = 0.944;
+  knee_clip = knee_clip*x1_clip;
+  x0_clip = x1_clip - knee_clip;
+  x2_clip = x1_clip + knee_clip;
+  m_clip = 0;
+  a_clip = (m_clip/(4*knee_clip)) - (1/(4*knee_clip));
+  b_clip = 1 - 2*a_clip*(x1_clip - knee_clip);
+  c_clip = -a_clip*(x1_clip - knee_clip)*(x1_clip - knee_clip) - b_clip*(x1_clip - knee_clip) + (x1_clip - knee_clip);
+  
+  
+  
+
+@sample
+function my_tanh(x) (
+  //courtesy of varosound https://varietyofsound.wordpress.com/2011/02/14/efficient-tanh-computation-using-lamberts-continued-fraction/
+  //x = max(min(x, 4), -4);
+  a_t = (((x*x + 378)*x*x + 17325)*x*x + 135135)*x;
+  b_t = ((28*x*x + 3150)*x*x + 62370)*x*x + 135135;
+  max(min(a_t/b_t, 2), -2);
+);
+
+
+s0 = spl0;
+s1 = spl1;
+
+s0 = inGain*s0;
+s1 = inGain*s1;
+
+
+//detector stage
+in_M = 0.5*(s0 + s1); 
+mon_M = in_M + feedback*(fb_M - in_M);  //feedback
+
+//SC HPF
+mon_M_lpf = mon_M_lpf + a_sc_hpf*(mon_M - mon_M_lpf);  //lowpass
+mon_M_hpf = mon_M - mon_M_lpf;
+
+mon_M_hpf_abs = abs(mon_M_hpf);
+
+a_sc = a_sc_r;
+mon_M_hpf_abs > sc ? (
+  a_sc = a_sc_a;
+);
+sc = sc + a_sc*(mon_M_hpf_abs - sc);
+
+
+//Threshold stage
+targetGain = 1;
+x = sc;
+x > x0 ? (
+  x >= x2 ? (
+    y = x1 + m*(x - x1);      //linear
+  );
+  x < x2 ? (
+    y = a*x*x + b*x + c;    //polynomial
+  );
+  //y = a*x*x + b*x + c;
+  targetGain = y / sc;
+);
+
+
+//Gain envelope
+a_g = a_g_a;
+targetGain >= z2 ? (
+  //release
+  a_g = a_g_r;
+  targetGain = targetGain + releaseAgression*(1 - targetGain);
+);
+
+z1 = z1 + a_g*(targetGain - z1);            //attack/release pole
+z2 = z2 + a_g_smooth*(z1 - z2);             //fixed pole
+
+gain = z2;
+
+gr_meter = gain;
+spl0 = s0*gain;
+spl1 = s1*gain;
+
+fb_M = 0.5 * (spl0 + spl1);
+
+
+/*
+
+//soft clipping
+softClip > 0 ? (
+  x = spl0;
+  x > x0_clip ? (
+    x >= x2_clip ? (
+      y = x1_clip;                            //hard clip
+    );
+    x < x2_clip ? (
+      y = a_clip*x*x + b_clip*x + c_clip;    //polynomial
+    );
+    //y = a*x*x + b*x + c;
+    spl0 = spl0*(y / x);
+  );
+  
+  x = spl1;
+  x > x0_clip ? (
+    x >= x2_clip ? (
+      y = x1_clip;                            //hard clip
+    );
+    x < x2_clip ? (
+      y = a_clip*x*x + b_clip*x + c_clip;    //polynomial
+    );
+    //y = a*x*x + b*x + c;
+    spl1 = spl1*(y / x);
+  );
+);
+
+*/
+
+softClip > 0 ? (
+  spl0 = my_tanh(spl0);
+  spl1 = my_tanh(spl1);
+);
+
+@gfx 0 32 // request horizontal/vertical heights (0 means dont care)
+
+  gr_meter *= exp(1/30); gr_meter>1?gr_meter=1; // decay meter here so if the audio processing stops it doesnt "stick"
+  gfx_r=1; gfx_g=gfx_b=0; gfx_a=0.8;
+  
+  meter_bot=20;
+  meter_h=min(gfx_h,32);
+  xscale=gfx_w*20/meter_bot;
+
+  gfx_y=0;
+  gfx_x=gfx_w + log10(gr_meter)*xscale;
+  gfx_rectto(gfx_w,meter_h);
+
+  gfx_r=gfx_g=gfx_b=1.0; gfx_a=0.6;
+
+  s2=sqrt(2)/2;
+  g = s2;
+  while(
+    gfx_x=gfx_w + log10(g)*xscale;
+    gfx_x >= 0 ? 
+    (
+      gfx_y=0;
+      gfx_lineto(gfx_x,meter_h,0);
+      gfx_y=meter_h-gfx_texth;
+      gfx_x+=2;
+      gfx_drawnumber(log10(g)*20,0);
+      gfx_drawchar($'d');
+      gfx_drawchar($'B');
+    );
+    g*=s2;
+    gfx_x >=0;
+  );
+  gfx_a=1;
+
+  gfx_x=0; gfx_y=meter_h/2 - gfx_texth/2;
+  gfx_drawnumber(log10(gr_meter)*20,1);
+  gfx_drawchar($'d');
+  gfx_drawchar($'B');
+

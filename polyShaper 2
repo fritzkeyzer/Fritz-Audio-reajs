@@ -1,0 +1,38 @@
+// This effect Copyright (C) 2004 and later Cockos Incorporated
+// License: GPL - http://www.gnu.org/licenses/gpl.html
+
+desc: PolyShaper 2
+//tags: Waveshaper Distortion
+//author: Fritz
+
+slider1:0<-90,0,0.1>Threshold (db)
+slider2:0<1,100,0.1>Knee
+
+
+@init
+  db2log = 0.11512925464970228420089957273422; // ln(10) / 20 
+  rCell = 0;
+
+@slider
+  
+  thresh = exp(slider1*db2log);
+  knee = slider2;
+
+@block
+
+@sample
+xL = spl0;
+xR = spl1;
+
+sc = max(abs(xL), abs(xR));
+
+g = 1;
+
+sc > thresh ? (
+  v = ((knee - 1)*thresh + sc)/knee;
+  g = thresh / v;
+);
+
+
+spl0 = xL*g;
+spl1 = xR*g;

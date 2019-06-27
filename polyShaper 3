@@ -1,0 +1,59 @@
+// This effect Copyright (C) 2004 and later Cockos Incorporated
+// License: GPL - http://www.gnu.org/licenses/gpl.html
+
+desc: PolyShaper 3
+//tags: Waveshaper Distortion
+//author: Fritz
+
+slider1:0<-100,0,0.1>Threshold (db)
+slider2:2<1,32,0.1>Ratio
+slider3:0<0,1,0.1>Knee
+
+
+@init
+  db2log = 0.11512925464970228420089957273422; // ln(10) / 20 
+  log2db = 8.6858896380650365530225783783321; // 20 / ln(10)
+  
+@slider
+  
+  thresh = exp(slider1*db2log);
+  ratio_reg = (-0.4343*((slider2)^-1.004) + 0.4343)*20*db2log;
+  
+  x1 = thresh;
+  knee = slider3*x1;
+  ratio = slider2;
+  x0 = x1 - knee;
+  x2 = x1 + knee;
+  y0 = x0;
+  y2 = x1 + (1/ratio)*(xs - x1);
+  m = 1/ratio;
+  
+   
+  a = (m/(4*knee)) - (1/(4*knee));
+  b = 1 - 2*a*(x1 - knee);
+  c = -a*(x1 - knee)*(x1 - knee) - b*(x1 - knee) + (x1 - knee);
+  
+@block
+
+
+
+@sample
+
+xL = spl0;
+xR = spl1;
+
+sc = max(abs(xL), abs(xR));
+gain = 1;
+
+sc > x0 ? (
+  sc < x2 ? (
+    gain = (a*sc*sc + b*sc + c) / sc;
+  );
+  sc > x2 ? (
+    //gain = exp(-ratio_reg*log(sc/thresh));
+    gain = (x1 + m*(sc - x1)) / sc;
+  );
+);
+
+spl0 = xL*gain;
+spl1 = xR*gain;

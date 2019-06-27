@@ -1,0 +1,117 @@
+desc: Variable  Curve Compressor
+//tags: compressor
+//author: Fritz
+
+
+slider1:1<0.01,1,0.0001> Threshold
+slider2:50<200, 10000, 0.00001> Detector Speed (Hz)
+slider3:50<0.1, 10000, 0.00001> Attack Speed (Hz)
+slider4:50<0.1, 100, 0.00001> Release Speed (Hz)
+
+@init
+gr_meter=1;
+gr_meter_decay = exp(1/(1*srate));
+
+gain = 1;
+z = 0;
+
+@slider
+  thresh = slider1;
+  
+  //attack onepole
+  b1a = exp(-2.0 * 3.1415 * slider3/srate);
+  a0a = 1.0 - b1a;
+  
+  //attack onepole
+  b1r = exp(-2.0 * 3.1415 * slider4/srate);
+  a0r = 1.0 - b1r;
+  
+  //detector biquad
+  Q = 0.5;
+  K = tan(3.1415 * slider2/srate);
+  norm = 1 / (1 + K / Q + K * K);
+  a0d = K * K * norm;
+  a1d = 2 * a0d;
+  a2d = a0d;
+  b1d = 2 * (K * K - 1) * norm;
+  b2d = (1 - K / Q + K * K) * norm;
+
+@sample
+s0 = spl0;
+s1 = spl1;
+
+//detector stage
+m =max(abs(s0), abs(s1));
+
+targetGain = 1;
+m > thresh ? (
+  targetGain = thresh / m;
+);
+
+E = targetGain * a0d + z1d;
+z1d = targetGain * a1d + z2d - b1d * out;
+z2d = targetGain * a2d - b2d * out;
+
+//E = targetGain;
+
+out = min(E * a0a + z1 * b1a, E * a0r + z1 * b1r);
+out < z1 ? (
+  //attack
+  out = E * a0a + z1 * b1a;
+);
+out > z1 ? (
+  //release
+  out = E * a0r + z1 * b1r;
+);
+z1 = out;
+gain = out;
+
+gr_meter = gain;
+spl0 = s0*gain;
+spl1 = s1*gain;
+
+
+
+
+
+
+
+@gfx 0 32 // request horizontal/vertical heights (0 means dont care)
+
+  gr_meter *= exp(1/30); gr_meter>1?gr_meter=1; // decay meter here so if the audio processing stops it doesnt "stick"
+  gfx_r=1; gfx_g=gfx_b=0; gfx_a=0.8;
+  
+  meter_bot=20;
+  meter_h=min(gfx_h,32);
+  xscale=gfx_w*20/meter_bot;
+
+  gfx_y=0;
+  gfx_x=gfx_w + log10(gr_meter)*xscale;
+  gfx_rectto(gfx_w,meter_h);
+
+  gfx_r=gfx_g=gfx_b=1.0; gfx_a=0.6;
+
+  s2=sqrt(2)/2;
+  g = s2;
+  while(
+    gfx_x=gfx_w + log10(g)*xscale;
+    gfx_x >= 0 ? 
+    (
+      gfx_y=0;
+      gfx_lineto(gfx_x,meter_h,0);
+      gfx_y=meter_h-gfx_texth;
+      gfx_x+=2;
+      gfx_drawnumber(log10(g)*20,0);
+      gfx_drawchar($'d');
+      gfx_drawchar($'B');
+    );
+    g*=s2;
+    gfx_x >=0;
+  );
+  gfx_a=1;
+
+  gfx_x=0; gfx_y=meter_h/2 - gfx_texth/2;
+  gfx_drawnumber(log10(gr_meter)*20,1);
+  gfx_drawchar($'d');
+  gfx_drawchar($'B');
+

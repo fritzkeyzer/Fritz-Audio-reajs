@@ -1,0 +1,182 @@
+desc: Compressor B
+//tags: Compressor Dynamics
+//author: Fritz
+
+slider1:0<-80,0,0.1>Threshold (db)
+slider2:1<1,100,0.5>Ratio
+slider3:0<0,1,0.1>Knee (db)
+slider4:0<0,1,0.1>Knee Style
+
+slider5:0<0,1,0.1>Feedback
+slider6:0<0,200,0.1>SC HPF (Hz)
+slider7:0<0,1000,0.1>SC Attack (ms)
+slider8:10<10,1000,0.1>SC Release (ms)
+
+slider9:0<0,200,0.1>Attack
+slider10:10<10,10000,0.1>Release
+slider11:0<0,1,0.1>Release Aggression
+slider12:0<0,0.1,0.01>Auto Release
+slider13:4000<100,4000,10>Envelope Smooth (Hz)
+
+
+@init
+  gr_meter=1;
+  //gr_meter_decay = exp(1/(1*srate));
+
+  gain = 1;
+  
+  //constants
+  log2db = 8.6858896380650365530225783783321; // 20 / ln(10)
+  db2log = 0.11512925464970228420089957273422; // ln(10) / 20 
+  pi = 3.14159265359;
+
+  //init
+  sc = 0;
+  z1 = 1;
+  z2 = 1;
+  fb_L = 0;
+  fb_R = 0;
+  mon_L_lpf = 0;
+  mon_R_lpf = 0;
+
+@slider
+  //SC section:
+  feedback = slider5;                                     //[0 - 1]
+  scHpf = slider6;                                        //hz
+  scAttackTime = min(max(1000/(slider7 + 0.1), 0.1), 0.5*srate);  //hz
+  scReleaseTime = min(max(1000/(slider8 + 0.1), 0.1), 0.5*srate); //hz
+  a_sc_a = 1 - exp(-2 * pi * (scAttackTime/srate));
+  a_sc_r = 1 - exp(-2 * pi * (scReleaseTime/srate));
+  a_sc_hpf = 1 - exp(-2 * pi * (scHpf/srate));
+
+  //Thresholding
+  thresh = exp(slider1*db2log);
+  ratio = slider2;
+  knee = slider3*thresh;;
+  x1 = thresh;
+  x0 = x1 - knee;
+  x2 = x1 + knee;
+  m = 1/ratio;
+  ratio >= 100 ? (
+    m = 0;
+  );
+  a = (m/(4*knee)) - (1/(4*knee));
+  b = 1 - 2*a*(x1 - knee);
+  c = -a*(x1 - knee)*(x1 - knee) - b*(x1 - knee) + (x1 - knee);
+  
+  //Gain envelope
+  attackTime = 1000/(slider9 + 0.1);
+  releaseTime = 1000/(slider10 + 0.1);
+  releaseAgression = slider11;
+  releaseLink = slider12;
+  a_g_smooth = 1 - exp(-2 * pi * (slider13/srate));
+  attackTime = min(max(attackTime, 0.1), 0.5*srate);
+  releaseTime = min(max(releaseTime, 0.1), 0.5*srate);
+  a_g_a = 1 - exp(-2 * pi * (attackTime/srate));
+  a_g_r = 1 - exp(-2 * pi * (releaseTime/srate));
+  
+  
+  
+
+@sample
+s0 = spl0;
+s1 = spl1;
+
+
+//detector stage
+mon_L = s0 + feedback*(fb_L - s0);  //feedback
+mon_R = s1 + feedback*(fb_R - s1);
+
+//SC HPF
+mon_L_lpf = mon_L_lpf + a_sc_hpf*(mon_L - mon_L_lpf);  //lowpass
+mon_R_lpf = mon_R_lpf + a_sc_hpf*(mon_R - mon_R_lpf);
+mon_L_hpf = mon_L - mon_L_lpf;
+mon_R_hpf = mon_R - mon_R_lpf;
+
+mon_max_hpf = max(abs(mon_L_hpf), abs(mon_R_hpf));
+
+a_sc = a_sc_r;
+mon_max_hpf > sc ? (
+  a_sc = a_sc_a;
+);
+sc = sc + a_sc*(mon_max_hpf - sc);
+
+
+//Threshold stage
+targetGain = 1;
+x = sc;
+x > x0 ? (
+  x >= x2 ? (
+    y = x1 + m*(x - x1);      //linear
+  );
+  x < x2 ? (
+    y = a*x*x + b*x + c;    //polynomial
+  );
+  //y = a*x*x + b*x + c;
+  targetGain = y / sc;
+);
+
+
+//Gain envelope
+a_g = a_g_a;
+targetGain >= z2 ? (
+  //release
+  a_g = a_g_r + releaseLink*(a_g - a_g_r);
+  a_g = a_g + a_g_a*(a_g_r - a_g);
+  targetGain = targetGain + releaseAgression*(1 - targetGain);
+);
+
+z1 = z1 + a_g*(targetGain - z1);     //attack/release pole
+z2 = z2 + a_g_smooth*(z1 - z2);             //fixed pole
+
+gain = z2;
+
+gr_meter = gain;
+spl0 = s0*gain;
+spl1 = s1*gain;
+
+
+fb_L = spl0;
+fb_R = spl1;
+
+
+
+@gfx 0 32 // request horizontal/vertical heights (0 means dont care)
+
+  gr_meter *= exp(1/30); gr_meter>1?gr_meter=1; // decay meter here so if the audio processing stops it doesnt "stick"
+  gfx_r=1; gfx_g=gfx_b=0; gfx_a=0.8;
+  
+  meter_bot=20;
+  meter_h=min(gfx_h,32);
+  xscale=gfx_w*20/meter_bot;
+
+  gfx_y=0;
+  gfx_x=gfx_w + log10(gr_meter)*xscale;
+  gfx_rectto(gfx_w,meter_h);
+
+  gfx_r=gfx_g=gfx_b=1.0; gfx_a=0.6;
+
+  s2=sqrt(2)/2;
+  g = s2;
+  while(
+    gfx_x=gfx_w + log10(g)*xscale;
+    gfx_x >= 0 ? 
+    (
+      gfx_y=0;
+      gfx_lineto(gfx_x,meter_h,0);
+      gfx_y=meter_h-gfx_texth;
+      gfx_x+=2;
+      gfx_drawnumber(log10(g)*20,0);
+      gfx_drawchar($'d');
+      gfx_drawchar($'B');
+    );
+    g*=s2;
+    gfx_x >=0;
+  );
+  gfx_a=1;
+
+  gfx_x=0; gfx_y=meter_h/2 - gfx_texth/2;
+  gfx_drawnumber(log10(gr_meter)*20,1);
+  gfx_drawchar($'d');
+  gfx_drawchar($'B');
+

@@ -1,0 +1,182 @@
+desc: Filtered Clipper v2
+//tags: Limiter
+//author: Fritz
+
+//slider1:6<-150,150,1>Adjustment (dB)
+//slider2:0<-150,150,1>Max Volume (dB)
+//slider2:100<0,100,1>Primary (%)
+slider2:1<0,1,0.0001> Threshold
+slider3:50<0,100, 0.00001> Smooth (%)
+slider4:50<0,1000, 1> Linear time (ms)
+
+@init
+HOLDTIME = srate/128;
+
+r1Timer = 0;
+r2Timer = HOLDTIME/2;
+
+gr_meter=1;
+gr_meter_decay = exp(1/(1*srate));
+
+
+
+@slider
+  thresh = slider2;
+  invThresh = 1/thresh;
+  
+  fc = ((((100 - slider3)*0.01)^10) * 20000 + 0.01) / srate;
+  
+  //lin = 44100
+   
+  //onepole:
+  b1a = exp(-2*3.14*fc);
+  a0a = 1 - b1a;
+ 
+  b1b = exp(-2*3.14*fc);
+  a0b = 1 - b1b;
+  
+  b1c = exp(-2*3.14*fc);
+  a0c = 1 - b1c;
+  
+  b1d = exp(-2*3.14*fc);
+  a0d = 1 - b1d;
+  
+  b1e = exp(-2*3.14*fc);
+  a0e = 1 - b1e;
+  
+  b1f = exp(-2*3.14*fc);
+  a0f = 1 - b1f;
+  
+  b1g = exp(-2*3.14*fc);
+  a0g = 1 - b1g;
+    
+  b1h = exp(-2*3.14*fc);
+  a0h = 1 - b1h; 
+  
+  
+  /*
+  //2 Pole
+  Q = 0.7071;
+  K = tan(3.14 * fc);
+  norm = 1 / (1 + K / Q + K * K);
+  a0 = K * K * norm;
+  a1 = 2 * a0;
+  a2 = a0;
+  b1 = 2 * (K * K - 1) * norm;
+  b2 = (1 - K / Q + K * K) * norm;
+  z1 = 0;
+  z2 = 0;
+  */
+
+@block
+//doseek ? (
+//  dadj=(adj1-adj1_s)/samplesblock;
+//  doseek=0;
+//):(
+//  dadj=0;
+//  adj1_s=adj1;
+//);
+
+
+@sample
+
+function myTanh(arg) (
+  pos = exp(arg);
+  neg = exp(-arg);
+  (pos - neg) / (pos + neg);
+);
+
+//spl0=min(max(spl0*adj1_s,-adj2),adj2);
+//spl1=min(max(spl1*adj1_s,-adj2),adj2);
+//adj1_s+=dadj;
+s0 = spl0;
+s1 = spl1;
+
+
+m =max(abs(s0), abs(s1));
+
+newGain = 1;
+m > thresh ? (
+  newGain = thresh / m;
+);
+
+//newGain = myTanh(m) / m;
+
+
+//Gain filter:
+target = newGain;
+
+gain = target * a0a + gain * b1a;
+gain = target * a0b + gain * b1b;
+gain = target * a0c + gain * b1c;
+gain = target * a0d + gain * b1d;
+gain = target * a0e + gain * b1e;
+gain = target * a0f + gain * b1f;
+gain = target * a0g + gain * b1g;
+gain = target * a0h + gain * b1h;
+
+
+(gain) > newGain ? (
+  gain = newGain;
+);
+
+
+gr_meter = gain;
+
+//GAIN
+s0 *= gain;
+s1 *= gain;
+
+//s0 = max(min(s0, thresh), -thresh);
+//s1 = max(min(s1, thresh), -thresh);
+
+//s0 = thresh * sin(1.5707 * (invThresh) * s0);
+//s1 = thresh * sin(1.5707 * (invThresh) * s1);
+
+spl0 = s0;
+spl1 = s1;
+
+spl0 = myTanh(spl0);
+spl1 = myTanh(spl1);
+
+
+
+@gfx 0 32 // request horizontal/vertical heights (0 means dont care)
+
+  gr_meter *= exp(1/30); gr_meter>1?gr_meter=1; // decay meter here so if the audio processing stops it doesnt "stick"
+  gfx_r=1; gfx_g=gfx_b=0; gfx_a=0.8;
+  
+  meter_bot=20;
+  meter_h=min(gfx_h,32);
+  xscale=gfx_w*20/meter_bot;
+
+  gfx_y=0;
+  gfx_x=gfx_w + log10(gr_meter)*xscale;
+  gfx_rectto(gfx_w,meter_h);
+
+  gfx_r=gfx_g=gfx_b=1.0; gfx_a=0.6;
+
+  s2=sqrt(2)/2;
+  g = s2;
+  while(
+    gfx_x=gfx_w + log10(g)*xscale;
+    gfx_x >= 0 ? 
+    (
+      gfx_y=0;
+      gfx_lineto(gfx_x,meter_h,0);
+      gfx_y=meter_h-gfx_texth;
+      gfx_x+=2;
+      gfx_drawnumber(log10(g)*20,0);
+      gfx_drawchar($'d');
+      gfx_drawchar($'B');
+    );
+    g*=s2;
+    gfx_x >=0;
+  );
+  gfx_a=1;
+
+  gfx_x=0; gfx_y=meter_h/2 - gfx_texth/2;
+  gfx_drawnumber(log10(gr_meter)*20,1);
+  gfx_drawchar($'d');
+  gfx_drawchar($'B');
+
