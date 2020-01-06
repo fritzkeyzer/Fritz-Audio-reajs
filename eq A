@@ -1,0 +1,77 @@
+desc: EQ A
+//tags: EQ
+//author: Fritz
+
+//slider1:0<-24,24,1>Input Gain (db)
+slider2:0<-24,12,0.1>Low Gain (db)
+slider3:0<-24,12,0.1>Lo-Mid Gain (db)
+slider4:0<-24,12,0.1>Hi-Mid Gain (db)
+slider5:0<-24,12,0.1>High Gain (db)
+
+
+slider10:0<0,1,1{Off,On}>Soft Clip
+
+
+
+@init
+  log2db = 8.6858896380650365530225783783321; // 20 / ln(10)
+  db2log = 0.11512925464970228420089957273422; // ln(10) / 20 
+  pi = 3.14159265359;
+  
+  z1_l = 0;
+  z1_lm = 0;
+  z1_hm = 0;
+  z1_h = 0;
+
+
+@slider
+  inGain = slider1;
+  xOver0 = 80;
+  xOver1 = 800;
+  xOver2 = 10000;
+  a0 = 1 - exp(-2 * pi * (xOver0/srate));
+  a1 = 1 - exp(-2 * pi * (xOver1/srate));
+  a2 = 1 - exp(-2 * pi * (xOver2/srate));
+  gain_l = pow(10, 0.1*slider2);
+  gain_lm = pow(10, 0.1*slider3);
+  gain_hm = pow(10, 0.1*slider4);
+  gain_h = pow(10, 0.1*slider5);
+  gain = 1;
+  
+  softClip = slider10;
+  
+@sample
+function my_tanh(x) (
+  //courtesy of varosound https://varietyofsound.wordpress.com/2011/02/14/efficient-tanh-computation-using-lamberts-continued-fraction/
+  //x = max(min(x, 4), -4);
+  a_t = (((x*x + 378)*x*x + 17325)*x*x + 135135)*x;
+  b_t = ((28*x*x + 3150)*x*x + 62370)*x*x + 135135;
+  max(min(a_t/b_t, 2), -2);
+);
+
+s0 = spl0;
+s1 = spl1;
+
+z1_la = z1_la + a0*(s0 - z1_la);
+z1_l = z1_l + a0*(z1_la - z1_l);
+z1_temp = s0 - z1_l;
+
+z1_lma = z1_lma + a1*(z1_temp - z1_lma);
+z1_lm = z1_lm + a1*(z1_lma - z1_lm);
+z1_temp = z1_temp - z1_lm;
+
+z1_hma = z1_hma + a2*(z1_temp - z1_hma);
+z1_hm = z1_hm + a2*(z1_hma - z1_hm);
+
+z1_h = z1_temp - z1_hm;
+
+s0 = (z1_l*gain_l) + (z1_lm*gain_lm) + (z1_hm*gain_hm) + (z1_h*gain_h);
+
+spl0 = s0*gain;
+spl1 = s1*gain;
+
+softClip > 0 ? (
+  spl0 = my_tanh(spl0);
+  spl1 = my_tanh(spl1);
+);
+
